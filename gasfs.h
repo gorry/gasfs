@@ -11,7 +11,7 @@
 #include <map>
 #include <vector>
 
-#define GASFS_VERSION "20210115a"
+#define GASFS_VERSION "20210205a"
 #define GASFS_MARK "GFS1"
 
 namespace GasFs {
@@ -71,7 +71,7 @@ struct Entry {
 // -------------------------------------------------------------
 
 int
-createMap(GasFs::Map& map, GasFs::Global& global);
+createMap(GasFs::Global& global, GasFs::Map& map);
 
 
 

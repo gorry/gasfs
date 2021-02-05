@@ -21,7 +21,7 @@ namespace GasFs {
 // =====================================================================
 
 int
-createMap(GasFs::Map& map, GasFs::Global& global)
+createMap(GasFs::Global& global, GasFs::Map& map)
 {
 	// データベースファイルを開く
 	const std::string filename = global.mSliceFilename+"_000.gfs";

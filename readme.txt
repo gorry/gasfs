@@ -1,6 +1,6 @@
 ◇ gasfs: GORRY's archive and slice file system
   Hiroaki GOTO as GORRY / http://GORRY.hauN.org/
-  Version 20210115a
+  Version 20210205a
 
 ========================================================================
 1. 概要

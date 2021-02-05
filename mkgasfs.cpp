@@ -699,16 +699,39 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 	}
 	int slices = inputGFI.getInt("Global", "Slices");
 	int maxSliceSize = inputGFI.getInt("Global", "MaxSliceSize");
+
+	// すでにスライスデータベースが存在していれば読む
+	// 構造が異なる場合は--forceが付いているものとして扱う
+	global.mSliceFilename = outputFilename;
+	char dbPath[_MAX_PATH];
+	sprintf(dbPath, "%s_000.gfs", global.mSliceFilename.c_str());
+	GasFs::Map mapOldSlice;
+	{
+		int ret = GasFs::createMap(global, mapOldSlice);
+		if (ret >= 0) {
+			do {
+				if (global.mSlices != slices) {
+					printf("treat as --force option: old Slice database [%s] slices(%d) is not equal to new slices(%d).\n", dbPath, global.mSlices, slices);
+					global.mForce = true;
+					break;
+				}
+				if (global.mMaxSliceSize != maxSliceSize) {
+					printf("treat as --force option: old Slice database [%s] max slice size(%d) is not equal to new max slice size(%d).\n", dbPath, global.mMaxSliceSize, maxSliceSize);
+					global.mForce = true;
+					break;
+				}
+			} while (0);
+		}
+	}
+
+	// グローバル情報を更新
 	global.mSlices = slices;
 	global.mMaxSliceSize = maxSliceSize;
 	global.mLastModifiedTime = 0;
-	global.mSliceFilename = outputFilename;
 	global.mSlice.resize(slices+1);
 
 	// GFIファイルが新しい場合は--forceが付いているものとして扱う
 	{
-		char dbPath[_MAX_PATH];
-		sprintf(dbPath, "%s_000.gfs", global.mSliceFilename.c_str());
 		uint64_t lmdInput = 0;
 		uint64_t lmdOutput = 0;
 		struct _stat s;
@@ -780,6 +803,54 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 	ret = FillSliceMapInfoFromInputPathMap(global, mapSlice, mapInputPath);
 	if (!ret) {
 		exit(EXIT_FAILURE);
+	}
+
+	// 現在のスライスデータベースと内容が食い違う場合は--forceが付いているものとして扱う
+	if (!global.mForce) {
+		if (gVerbose) {
+			printf("\n* Compare SliceMap\n");
+		}
+		do {
+			if (mapSlice.size() != mapOldSlice.size()) {
+				global.mForce = true;
+				if (gVerbose) {
+					printf("treat as --force option: old Slice file [%s] files(%d) != new Slice files(%d)\n", dbPath, mapOldSlice.size(), mapSlice.size());
+				}
+				break;
+			}
+			GasFs::Map::iterator it1 = mapSlice.begin();
+			GasFs::Map::iterator it2 = mapOldSlice.begin();
+			while (!0) {
+				if ((it1 == mapSlice.end()) || (it2 == mapOldSlice.end())) {
+					break;
+				}
+				const std::string& path1 = it1->first;
+				const GasFs::Entry& entry1 = it1->second;
+				const std::string& path2 = it2->first;
+				const GasFs::Entry& entry2 = it2->second;
+				if (path1 != path2) {
+					global.mForce = true;
+					if (gVerbose) {
+						printf("treat as --force option: different entry: old File [%s], new File [%s]\n", path1.c_str(), path2.c_str());
+					}
+					break;
+				}
+				if (entry1.mSlice != entry2.mSlice) {
+					global.mForce = true;
+					if (gVerbose) {
+						printf("treat as --force option: old File [%s] Slice(%d) != new File [%s] Slice(%d)\n", path2.c_str(), entry2.mSlice, path1.c_str(), entry1.mSlice);
+					}
+					break;
+				}
+				it1++;
+				it2++;
+			}
+			if (!global.mForce) {
+				if (gVerbose) {
+					printf("all old Slice file [%s] files(%d) == new Slice files(%d)\n", dbPath, mapOldSlice.size(), mapSlice.size());
+				}
+			}
+		} while (0);
 	}
 
 	// スライスマップからスライスファイルを作る

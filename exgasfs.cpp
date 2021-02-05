@@ -255,7 +255,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 	GasFs::Global global;
 	GasFs::Map map;
 	global.mSliceFilename = inputFilename;
-	int slices = createMap(map, global);
+	int slices = createMap(global, map);
 	if (slices < 0) {
 		exit(EXIT_FAILURE);
 	}
