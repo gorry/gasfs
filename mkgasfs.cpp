@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <locale.h>
 #include <wchar.h>
+#include <time.h>
 #include <dirent.h>
 
 #include "IniFile.h"
@@ -146,7 +147,7 @@ FillSliceMapInfoFromInputPathMap(GasFs::Global& global, GasFs::Map& mapSlice, Ga
 	for (int i=1; i<=slices; i++) {
 		uint64_t lastModifiedTime = 0;
 		global.mSlice[i].mFiles = 0;
-		global.mSlice[i].mRest = (int64_t)maxSliceSize*1024*1024;
+		global.mSlice[i].mRest = (int64_t)maxSliceSize*1024*1024 - sizeof(GasFs::Database::SubHeader);
 
 		if (gVerbose) {
 			printf("Slice %03d: Specified Files...\n", i);
@@ -273,15 +274,18 @@ MakeSliceFileFromSliceMap(GasFs::Global& global, GasFs::Map& mapSlice)
 	const std::string& sliceFilename = global.mSliceFilename;
 
 	for (int i=1; i<=slices; i++) {
+		uint32_t crc = 0;
 		int64_t totalSize = 0;
 		bool skip = false;
 
-		// スライスを開く
+		// スライスのファイル名を決定
 		char slicePath[_MAX_PATH];
 		sprintf(slicePath, "%s_%03d.gfs", sliceFilename.c_str(), i);
 		if (gVerbose) {
 			printf("Output Slice %03d file [%s] ... ", i, slicePath);
 		}
+
+		// スライスの更新確認
 		uint64_t lastmodifiedtime = 0;
 		struct _stat s;
 		int st = _stat(slicePath, &s);
@@ -312,11 +316,52 @@ MakeSliceFileFromSliceMap(GasFs::Global& global, GasFs::Map& mapSlice)
 			}
 		}
 
+		// スライスサブヘッダが同一か確認
+		if (skip) {
+			GasFs::Database::SubHeader b = {0};
+			if (gVerbose) {
+				printf("Check Slice SubHeader [%s]\n", slicePath);
+			}
+			skip = false;
+			FILE *fin = fopen(slicePath, "rb");
+			if (fin != nullptr) {
+				fread(&b, 1, sizeof(b), fin);
+				fclose(fin);
+				if (!memcmp(&(b.mMark[0]), GASFS_SUBMARK, 4)) {
+					if (gVerbose) {
+						printf("Skip modifying [%s]: Slice SubHeader OK.\n", slicePath);
+					}
+					skip = true;
+
+					global.mSlice[i].mFiles = (b.mFiles[0]<<0) | (b.mFiles[1]<<8) | (b.mFiles[2]<<16);
+					global.mSlice[i].mTotalSize = (b.mTotalSize[0]<<0) | (b.mTotalSize[1]<<8) | (b.mTotalSize[2]<<16) | (b.mTotalSize[3]<<24);
+					global.mSlice[i].mCRC = (b.mCRC[0]<<0) | (b.mCRC[1]<<8) | (b.mCRC[2]<<16) | (b.mCRC[3]<<24);
+					struct tm lt;
+					lt.tm_year = ((b.mDate[0]>>4)*1000)+((b.mDate[0]&0x0f)*100)+((b.mDate[1]>>4)*10)+((b.mDate[1]&0x0f)*1) - 1900;
+					lt.tm_mon = ((b.mDate[2]>>4)*10)+((b.mDate[2]&0x0f)*1) - 1;
+					lt.tm_mday = ((b.mDate[3]>>4)*10)+((b.mDate[3]&0x0f)*1);
+					lt.tm_hour = ((b.mDate[4]>>4)*10)+((b.mDate[4]&0x0f)*1);
+					lt.tm_min = ((b.mDate[5]>>4)*10)+((b.mDate[5]&0x0f)*1);
+					lt.tm_sec = ((b.mDate[6]>>4)*10)+((b.mDate[6]&0x0f)*1);
+					global.mSlice[i].mLastModifiedTime = (uint64_t)_mkgmtime(&lt);
+				}
+			}
+		}
+
+		// スライスを開く
 		FILE *fout = nullptr;
 		if (!skip) {
 			fout = fopen(slicePath, "wb");
 			if (fout == nullptr) {
 				fprintf(stderr, "Failed: Cannot open slice [%s].\n", slicePath);
+				return false;
+			}
+
+			// サブヘッダの分を書く
+			GasFs::Database::SubHeader b = {0};
+			size_t wrotesize = fwrite(&b, 1, sizeof(b), fout);
+			if (wrotesize != sizeof(b)) {
+				fprintf(stderr, "Failed: Cannot write slice [%s].\n", slicePath);
 				return false;
 			}
 		}
@@ -357,6 +402,7 @@ MakeSliceFileFromSliceMap(GasFs::Global& global, GasFs::Map& mapSlice)
 					if (readsize == 0) {
 						break;
 					}
+					crc = GasFs::GetCRC(buf, readsize, crc);
 					size_t wrotesize = fwrite(buf, 1, readsize, fout);
 					if (wrotesize != readsize) {
 						fclose(fin);
@@ -371,8 +417,57 @@ MakeSliceFileFromSliceMap(GasFs::Global& global, GasFs::Map& mapSlice)
 
 			totalSize += (int64_t)entry.mSize;
 		}
+		if (!skip) {
+			global.mSlice[i].mTotalSize = (uint64_t)totalSize;
+			global.mSlice[i].mCRC = crc;
+		}
 		if (gVerbose) {
 			printf("%" PRIi64 "MB\n", totalSize/1024/1024);
+		}
+
+		// スライスサブヘッダを記録
+		if (!skip) {
+			GasFs::Database::SubHeader b = {0};
+
+			struct tm lt = *(gmtime((const time_t*)&(global.mSlice[i].mLastModifiedTime)));
+			char str[16];
+			sprintf(str, "0x%04d%02d", lt.tm_year+1900, lt.tm_mon+1);
+			uint32_t date1 = strtoul(str, nullptr, 0);
+			sprintf(str, "0x%02d%02d%02d%02d", lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+			uint32_t date2 = strtoul(str, nullptr, 0);
+
+			size_t files = global.mSlice[i].mFiles;
+			memcpy(&(b.mMark[0]), GASFS_SUBMARK, 4);
+			if (gVerbose) {
+				printf("slice=%d, files=%zu, date=%06x%08x\n", i, files, date1, date2);
+			}
+			b.mSliceNo[0] = i;
+			b.mFiles[0] = (files>>0)&0xff;
+			b.mFiles[1] = (files>>8)&0xff;
+			b.mFiles[2] = (files>>16)&0xff;
+			b.mTotalSize[0] = (totalSize>>0)&0xff;
+			b.mTotalSize[1] = (totalSize>>8)&0xff;
+			b.mTotalSize[2] = (totalSize>>16)&0xff;
+			b.mTotalSize[3] = (totalSize>>24)&0xff;
+			b.mCRC[0] = (crc>>0)&0xff;
+			b.mCRC[1] = (crc>>8)&0xff;
+			b.mCRC[2] = (crc>>16)&0xff;
+			b.mCRC[3] = (crc>>24)&0xff;
+			b.mDate[0] = (date1>>16)&0xff;  // 2021/04/07 18:45:01なら"20 21 04 07 18 45 01"のバイト列になる
+			b.mDate[1] = (date1>> 8)&0xff;
+			b.mDate[2] = (date1>> 0)&0xff;
+			b.mDate[3] = (date2>>24)&0xff;
+			b.mDate[4] = (date2>>16)&0xff;
+			b.mDate[5] = (date2>> 8)&0xff;
+			b.mDate[6] = (date2>> 0)&0xff;
+			size_t writeSize = sizeof(b);
+			fseek(fout, 0, SEEK_SET);
+			size_t wroteSize = fwrite(&b, 1, writeSize, fout);
+			if (wroteSize != writeSize) {
+				fprintf(stderr, "Failed: Cannot write slice [%s].\n", slicePath);
+				fclose(fout);
+				return false;
+			}
 		}
 
 		// スライスを閉じる
@@ -433,6 +528,14 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 	// データベースヘッダを書き出す
 	{
 		GasFs::Database::Header b = {0};
+
+		struct tm lt = *(gmtime((const time_t*)&(global.mLastModifiedTime)));
+		char str[16];
+		sprintf(str, "0x%04d%02d", lt.tm_year+1900, lt.tm_mon+1);
+		uint32_t date1 = strtoul(str, nullptr, 0);
+		sprintf(str, "0x%02d%02d%02d%02d", lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+		uint32_t date2 = strtoul(str, nullptr, 0);
+
 		size_t entries = mapSlice.size();
 		memcpy(&(b.mMark[0]), GASFS_MARK, 4);
 		if (gVerbose) {
@@ -446,6 +549,58 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 		b.mMaxSliceSize[1] = (maxSliceSize>>8)&0xff;
 		b.mMaxSliceSize[2] = (maxSliceSize>>16)&0xff;
 		b.mMaxSliceSize[3] = (maxSliceSize>>24)&0xff;
+		b.mDate[0] = (date1>>16)&0xff;  // 2021/04/07 18:45:01なら"20 21 04 07 18 45 01"のバイト列になる
+		b.mDate[1] = (date1>> 8)&0xff;
+		b.mDate[2] = (date1>> 0)&0xff;
+		b.mDate[3] = (date2>>24)&0xff;
+		b.mDate[4] = (date2>>16)&0xff;
+		b.mDate[5] = (date2>> 8)&0xff;
+		b.mDate[6] = (date2>> 0)&0xff;
+		size_t writeSize = sizeof(b);
+		size_t wroteSize = fwrite(&b, 1, writeSize, fout);
+		if (wroteSize != writeSize) {
+			fprintf(stderr, "Failed: Cannot write slice [%s].\n", dbPath);
+			fclose(fout);
+			return false;
+		}
+	}
+
+	// スライスリストを書き出す
+	for (int i=1; i<=slices; i++) {
+		GasFs::Database::SubHeader b = {0};
+		struct tm lt = *(gmtime((const time_t*)&(global.mSlice[i].mLastModifiedTime)));
+		char str[16];
+		sprintf(str, "0x%04d%02d", lt.tm_year+1900, lt.tm_mon+1);
+		uint32_t date1 = strtoul(str, nullptr, 0);
+		sprintf(str, "0x%02d%02d%02d%02d", lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+		uint32_t date2 = strtoul(str, nullptr, 0);
+
+		size_t files = global.mSlice[i].mFiles;
+		uint64_t totalSize = global.mSlice[i].mTotalSize;
+		uint32_t crc = global.mSlice[i].mCRC;
+		memcpy(&(b.mMark[0]), GASFS_SUBMARK, 4);
+		if (gVerbose) {
+			printf("slice=%d, files=%zu, date=%06x%08x\n", i, files, date1, date2);
+		}
+		b.mSliceNo[0] = i;
+		b.mFiles[0] = (files>>0)&0xff;
+		b.mFiles[1] = (files>>8)&0xff;
+		b.mFiles[2] = (files>>16)&0xff;
+		b.mTotalSize[0] = (totalSize>>0)&0xff;
+		b.mTotalSize[1] = (totalSize>>8)&0xff;
+		b.mTotalSize[2] = (totalSize>>16)&0xff;
+		b.mTotalSize[3] = (totalSize>>24)&0xff;
+		b.mCRC[0] = (crc>>0)&0xff;
+		b.mCRC[1] = (crc>>8)&0xff;
+		b.mCRC[2] = (crc>>16)&0xff;
+		b.mCRC[3] = (crc>>24)&0xff;
+		b.mDate[0] = (date1>>16)&0xff;  // 2021/04/07 18:45:01なら"20 21 04 07 18 45 01"のバイト列になる
+		b.mDate[1] = (date1>> 8)&0xff;
+		b.mDate[2] = (date1>> 0)&0xff;
+		b.mDate[3] = (date2>>24)&0xff;
+		b.mDate[4] = (date2>>16)&0xff;
+		b.mDate[5] = (date2>> 8)&0xff;
+		b.mDate[6] = (date2>> 0)&0xff;
 		size_t writeSize = sizeof(b);
 		size_t wroteSize = fwrite(&b, 1, writeSize, fout);
 		if (wroteSize != writeSize) {
@@ -526,7 +681,7 @@ exportMapList(const GasFs::Global& global, const std::string& outputFilename, co
 {
 	FILE* fout = fopen(outputFilename.c_str(), "w");
 	if (fout == nullptr) {
-		fprintf(stderr, "Failed: Cannot open [%s].\n", outputFilename.c_str());
+		fprintf(stderr, "Failed: Cannot export to [%s].\n", outputFilename.c_str());
 		return false;
 	}
 
@@ -706,21 +861,27 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 	char dbPath[_MAX_PATH];
 	sprintf(dbPath, "%s_000.gfs", global.mSliceFilename.c_str());
 	GasFs::Map mapOldSlice;
-	{
-		int ret = GasFs::createMap(global, mapOldSlice);
-		if (ret >= 0) {
-			do {
-				if (global.mSlices != slices) {
-					printf("treat as --force option: old Slice database [%s] slices(%d) is not equal to new slices(%d).\n", dbPath, global.mSlices, slices);
-					global.mForce = true;
-					break;
-				}
-				if (global.mMaxSliceSize != maxSliceSize) {
-					printf("treat as --force option: old Slice database [%s] max slice size(%d) is not equal to new max slice size(%d).\n", dbPath, global.mMaxSliceSize, maxSliceSize);
-					global.mForce = true;
-					break;
-				}
-			} while (0);
+	FILE* fin = fopen(dbPath, "rb");
+	if (fin) {
+		GasFs::Database::Header b = {0};
+		fread(&b, 1, sizeof(b), fin);
+		fclose(fin);
+		if (!memcpy(&(b.mMark[0]), GASFS_MARK, 4)) {
+			int ret = GasFs::createMap(global, mapOldSlice);
+			if (ret >= 0) {
+				do {
+					if (global.mSlices != slices) {
+						printf("treat as --force option: old Slice database [%s] slices(%d) is not equal to new slices(%d).\n", dbPath, global.mSlices, slices);
+						global.mForce = true;
+						break;
+					}
+					if (global.mMaxSliceSize != maxSliceSize) {
+						printf("treat as --force option: old Slice database [%s] max slice size(%d) is not equal to new max slice size(%d).\n", dbPath, global.mMaxSliceSize, maxSliceSize);
+						global.mForce = true;
+						break;
+					}
+				} while (0);
+			}
 		}
 	}
 

@@ -11,8 +11,9 @@
 #include <map>
 #include <vector>
 
-#define GASFS_VERSION "20210205a"
-#define GASFS_MARK "GFS1"
+#define GASFS_VERSION "20210407a"
+#define GASFS_MARK "GFS2"
+#define GASFS_SUBMARK "gFS2"
 
 namespace GasFs {
 
@@ -25,10 +26,13 @@ struct Slice {
 	int mFiles;
 	int64_t mRest;
 	uint64_t mLastModifiedTime;
+	uint64_t mTotalSize;
+	uint32_t mCRC;
 	std::string mFilename;
 };
 
 struct Global {
+	int mEntries;
 	int mSlices;
 	int mMaxSliceSize;
 	bool mForce;
@@ -56,7 +60,19 @@ struct Header {
 	uint8_t mSlices[1];
 	uint8_t mEntries[3];
 	uint8_t mMaxSliceSize[4];
-	uint8_t mDummy[4];
+	uint8_t mDate[7];
+	uint8_t mDummy[13];
+};
+
+struct SubHeader {
+	uint8_t mMark[3];
+	uint8_t mVersion[1];
+	uint8_t mSliceNo[1];
+	uint8_t mFiles[3];
+	uint8_t mTotalSize[4];
+	uint8_t mCRC[4];
+	uint8_t mDate[7];
+	uint8_t mDummy[9];
 };
 
 struct Entry {
@@ -73,6 +89,8 @@ struct Entry {
 int
 createMap(GasFs::Global& global, GasFs::Map& map);
 
+uint32_t
+GetCRC(uint8_t* buf, uint32_t bufsiz, uint32_t crc=0);
 
 
 // -------------------------------------------------------------

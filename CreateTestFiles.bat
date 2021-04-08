@@ -34,5 +34,5 @@ Release\mkbin test\Baz\Bar\file31.dat --size 10485760
 Release\mkbin test\Baz\Bar\file32.dat --size 10485760
 Release\mkbin test\Baz\Bar\file33.dat --size 10485760
 Release\mkbin test\Baz\Bar\file34.dat --size 10485760
-Release\mkbin test\Baz\Bar\file35.dat --size 10485760
+Release\mkbin test\Baz\Bar\file35.dat --size 10485728
 

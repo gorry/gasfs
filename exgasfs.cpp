@@ -244,7 +244,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 	if (gVerbose) {
 		if (extractFiles.size()) {
 			printf("Filter: [%s]", extractFiles[0].c_str());
-			for (int i=1; i<extractFiles.size(); i++) {
+			for (int i=1; i<(int)extractFiles.size(); i++) {
 				printf(", [%s]\n", extractFiles[i].c_str());
 			}
 			printf("\n");
@@ -317,7 +317,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 						fprintf(stderr, "Failed: Cannot open file [%s]\n", filename);
 						exit(EXIT_FAILURE);
 					}
-					fpos_t pos = entry.mOffset;
+					fpos_t pos = entry.mOffset + sizeof(GasFs::Database::SubHeader);
 					fsetpos(fin, &pos);
 
 					// bufsizeずつスライスから書き写す
