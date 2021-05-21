@@ -866,7 +866,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 		GasFs::Database::Header b = {0};
 		fread(&b, 1, sizeof(b), fin);
 		fclose(fin);
-		if (!memcpy(&(b.mMark[0]), GASFS_MARK, 4)) {
+		if (!memcmp(&(b.mMark[0]), GASFS_MARK, 4)) {
 			int ret = GasFs::createMap(global, mapOldSlice);
 			if (ret >= 0) {
 				do {
