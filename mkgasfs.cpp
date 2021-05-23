@@ -449,6 +449,10 @@ MakeSliceFileFromSliceMap(GasFs::Global& global, GasFs::Map& mapSlice)
 			b.mTotalSize[1] = (totalSize>>8)&0xff;
 			b.mTotalSize[2] = (totalSize>>16)&0xff;
 			b.mTotalSize[3] = (totalSize>>24)&0xff;
+			b.mTotalSize[4] = (totalSize>>32)&0xff;
+			b.mTotalSize[5] = (totalSize>>40)&0xff;
+			b.mTotalSize[6] = (totalSize>>48)&0xff;
+			b.mTotalSize[7] = (totalSize>>56)&0xff;
 			b.mCRC[0] = (crc>>0)&0xff;
 			b.mCRC[1] = (crc>>8)&0xff;
 			b.mCRC[2] = (crc>>16)&0xff;
@@ -500,6 +504,8 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 	int slices = global.mSlices;
 	int maxSliceSize = global.mMaxSliceSize;
 	const std::string& sliceFilename = global.mSliceFilename;
+	uint32_t crc = 0;
+	uint64_t totalSize = 0;
 
 	// データベースを開く
 	char dbPath[_MAX_PATH];
@@ -525,37 +531,9 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 		return false;
 	}
 
-	// データベースヘッダを書き出す
+	// データベースヘッダの分の余白を書き出す
 	{
 		GasFs::Database::Header b = {0};
-
-		struct tm lt = *(gmtime((const time_t*)&(global.mLastModifiedTime)));
-		char str[16];
-		sprintf(str, "0x%04d%02d", lt.tm_year+1900, lt.tm_mon+1);
-		uint32_t date1 = strtoul(str, nullptr, 0);
-		sprintf(str, "0x%02d%02d%02d%02d", lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
-		uint32_t date2 = strtoul(str, nullptr, 0);
-
-		size_t entries = mapSlice.size();
-		memcpy(&(b.mMark[0]), GASFS_MARK, 4);
-		if (gVerbose) {
-			printf("slices=%d, entries=%zu, maxSliceSize=%d\n", slices, entries, maxSliceSize);
-		}
-		b.mSlices[0] = slices;
-		b.mEntries[0] = (entries>>0)&0xff;
-		b.mEntries[1] = (entries>>8)&0xff;
-		b.mEntries[2] = (entries>>16)&0xff;
-		b.mMaxSliceSize[0] = (maxSliceSize>>0)&0xff;
-		b.mMaxSliceSize[1] = (maxSliceSize>>8)&0xff;
-		b.mMaxSliceSize[2] = (maxSliceSize>>16)&0xff;
-		b.mMaxSliceSize[3] = (maxSliceSize>>24)&0xff;
-		b.mDate[0] = (date1>>16)&0xff;  // 2021/04/07 18:45:01なら"20 21 04 07 18 45 01"のバイト列になる
-		b.mDate[1] = (date1>> 8)&0xff;
-		b.mDate[2] = (date1>> 0)&0xff;
-		b.mDate[3] = (date2>>24)&0xff;
-		b.mDate[4] = (date2>>16)&0xff;
-		b.mDate[5] = (date2>> 8)&0xff;
-		b.mDate[6] = (date2>> 0)&0xff;
 		size_t writeSize = sizeof(b);
 		size_t wroteSize = fwrite(&b, 1, writeSize, fout);
 		if (wroteSize != writeSize) {
@@ -576,8 +554,8 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 		uint32_t date2 = strtoul(str, nullptr, 0);
 
 		size_t files = global.mSlice[i].mFiles;
-		uint64_t totalSize = global.mSlice[i].mTotalSize;
-		uint32_t crc = global.mSlice[i].mCRC;
+		uint64_t slicetotalSize = global.mSlice[i].mTotalSize;
+		uint32_t slicecrc = global.mSlice[i].mCRC;
 		memcpy(&(b.mMark[0]), GASFS_SUBMARK, 4);
 		if (gVerbose) {
 			printf("slice=%d, files=%zu, date=%06x%08x\n", i, files, date1, date2);
@@ -586,14 +564,18 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 		b.mFiles[0] = (files>>0)&0xff;
 		b.mFiles[1] = (files>>8)&0xff;
 		b.mFiles[2] = (files>>16)&0xff;
-		b.mTotalSize[0] = (totalSize>>0)&0xff;
-		b.mTotalSize[1] = (totalSize>>8)&0xff;
-		b.mTotalSize[2] = (totalSize>>16)&0xff;
-		b.mTotalSize[3] = (totalSize>>24)&0xff;
-		b.mCRC[0] = (crc>>0)&0xff;
-		b.mCRC[1] = (crc>>8)&0xff;
-		b.mCRC[2] = (crc>>16)&0xff;
-		b.mCRC[3] = (crc>>24)&0xff;
+		b.mTotalSize[0] = (slicetotalSize>>0)&0xff;
+		b.mTotalSize[1] = (slicetotalSize>>8)&0xff;
+		b.mTotalSize[2] = (slicetotalSize>>16)&0xff;
+		b.mTotalSize[3] = (slicetotalSize>>24)&0xff;
+		b.mTotalSize[4] = (slicetotalSize>>32)&0xff;
+		b.mTotalSize[5] = (slicetotalSize>>40)&0xff;
+		b.mTotalSize[6] = (slicetotalSize>>48)&0xff;
+		b.mTotalSize[7] = (slicetotalSize>>56)&0xff;
+		b.mCRC[0] = (slicecrc>>0)&0xff;
+		b.mCRC[1] = (slicecrc>>8)&0xff;
+		b.mCRC[2] = (slicecrc>>16)&0xff;
+		b.mCRC[3] = (slicecrc>>24)&0xff;
 		b.mDate[0] = (date1>>16)&0xff;  // 2021/04/07 18:45:01なら"20 21 04 07 18 45 01"のバイト列になる
 		b.mDate[1] = (date1>> 8)&0xff;
 		b.mDate[2] = (date1>> 0)&0xff;
@@ -608,6 +590,8 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 			fclose(fout);
 			return false;
 		}
+		crc = GasFs::GetCRC((uint8_t*)&b, writeSize, crc);
+		totalSize += writeSize;
 	}
 
 	// データベースエントリを書き出す
@@ -648,12 +632,65 @@ MakeSliceDatabaseFileFromSliceMap(const GasFs::Global& global, const GasFs::Map&
 			fclose(fout);
 			return false;
 		}
+		crc = GasFs::GetCRC((uint8_t*)&b, writeSize, crc);
+		totalSize += writeSize;
 	}
 
 	// Pathリストをデータベースに書き出す
 	{
 		size_t writeSize = pathBuf.size();
 		size_t wroteSize = fwrite(pathBuf.data(), 1, writeSize, fout);
+		if (wroteSize != writeSize) {
+			fprintf(stderr, "Failed: Cannot write slice [%s].\n", dbPath);
+			fclose(fout);
+			return false;
+		}
+		crc = GasFs::GetCRC((uint8_t*)pathBuf.data(), writeSize, crc);
+		totalSize += writeSize;
+	}
+
+	// データベースヘッダを書き出す
+	fseek(fout, 0, SEEK_SET);
+	{
+		GasFs::Database::Header b = {0};
+
+		struct tm lt = *(gmtime((const time_t*)&(global.mLastModifiedTime)));
+		char str[16];
+		sprintf(str, "0x%04d%02d", lt.tm_year+1900, lt.tm_mon+1);
+		uint32_t date1 = strtoul(str, nullptr, 0);
+		sprintf(str, "0x%02d%02d%02d%02d", lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+		uint32_t date2 = strtoul(str, nullptr, 0);
+
+		size_t entries = mapSlice.size();
+		memcpy(&(b.mMark[0]), GASFS_MARK, 4);
+		if (gVerbose) {
+			printf("slices=%d, entries=%zu, maxSliceSize=%d\n", slices, entries, maxSliceSize);
+		}
+		b.mSlices[0] = slices;
+		b.mEntries[0] = (entries>>0)&0xff;
+		b.mEntries[1] = (entries>>8)&0xff;
+		b.mEntries[2] = (entries>>16)&0xff;
+		b.mTotalSize[0] = (totalSize>>0)&0xff;
+		b.mTotalSize[1] = (totalSize>>8)&0xff;
+		b.mTotalSize[2] = (totalSize>>16)&0xff;
+		b.mTotalSize[3] = (totalSize>>24)&0xff;
+		b.mMaxSliceSize[0] = (maxSliceSize>>0)&0xff;
+		b.mMaxSliceSize[1] = (maxSliceSize>>8)&0xff;
+		b.mMaxSliceSize[2] = (maxSliceSize>>16)&0xff;
+		b.mMaxSliceSize[3] = (maxSliceSize>>24)&0xff;
+		b.mCRC[0] = (crc>>0)&0xff;
+		b.mCRC[1] = (crc>>8)&0xff;
+		b.mCRC[2] = (crc>>16)&0xff;
+		b.mCRC[3] = (crc>>24)&0xff;
+		b.mDate[0] = (date1>>16)&0xff;  // 2021/04/07 18:45:01なら"20 21 04 07 18 45 01"のバイト列になる
+		b.mDate[1] = (date1>> 8)&0xff;
+		b.mDate[2] = (date1>> 0)&0xff;
+		b.mDate[3] = (date2>>24)&0xff;
+		b.mDate[4] = (date2>>16)&0xff;
+		b.mDate[5] = (date2>> 8)&0xff;
+		b.mDate[6] = (date2>> 0)&0xff;
+		size_t writeSize = sizeof(b);
+		size_t wroteSize = fwrite(&b, 1, writeSize, fout);
 		if (wroteSize != writeSize) {
 			fprintf(stderr, "Failed: Cannot write slice [%s].\n", dbPath);
 			fclose(fout);

@@ -55,12 +55,25 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 	p += sizeof(GasFs::Database::Header);
 	if (memcmp(&(header->mMark[0]), GASFS_MARK, 4)) {
 		fprintf(stderr, "Failed: Not GasFs file [%s].\n", filename.c_str());
-		fclose(fin);
 		return -1;
 	}
 	int slices = header->mSlices[0];
 	int entries = (header->mEntries[0]<<0) | (header->mEntries[1]<<8) |(header->mEntries[2]<<16);
+	uint32_t totalSize = (header->mTotalSize[0]<<0) | (header->mTotalSize[1]<<8) | (header->mTotalSize[2]<<16) | (header->mTotalSize[3]<<24);
 	int maxSliceSize = (header->mMaxSliceSize[0]<<0) | (header->mMaxSliceSize[1]<<8) | (header->mMaxSliceSize[2]<<16) | (header->mMaxSliceSize[3]<<24);
+	uint32_t crc = (header->mCRC[0]<<0) | (header->mCRC[1]<<8) | (header->mCRC[2]<<16) | (header->mCRC[3]<<24);
+	uint32_t datasize = readsize-sizeof(GasFs::Database::Header);
+	if (totalSize != datasize) {
+		fprintf(stderr, "Failed: Database size error(header=%08x, data=%08x) [%s].\n", totalSize, datasize, filename.c_str());
+		return -1;
+	}
+	if (!global.mSkipCheckCRC) {
+		uint32_t datacrc = GasFs::GetCRC(p, datasize, 0);
+		if (crc != datacrc) {
+			fprintf(stderr, "Failed: Database CRC error(header=%08x, data=%08x) [%s].\n", crc, datacrc, filename.c_str());
+			return -1;
+		}
+	}
 	global.mSlice.resize(slices+1);
 
 	// スライスファイルのチェック
@@ -77,6 +90,13 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 		}
 		GasFs::Database::SubHeader b = {0};
 		readsize = fread(&b, 1, sizeof(b), fin);
+
+		// スライスファイルのサイズを得ておく
+		fseek(fin, 0, SEEK_END);
+		fpos_t pos;
+		fgetpos(fin, &pos);
+		uint64_t datasize = pos - sizeof(GasFs::Database::SubHeader);
+
 		fclose(fin);
 		if (readsize != sizeof(b)) {
 			fprintf(stderr, "Failed: Cannot read [%s].\n", filename.c_str());
@@ -87,7 +107,10 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 			return -1;
 		}
 		global.mSlice[i].mFiles = (b.mFiles[0]<<0) | (b.mFiles[1]<<8) | (b.mFiles[0]<<16);
-		global.mSlice[i].mTotalSize = (b.mTotalSize[0]<<0) | (b.mTotalSize[1]<<8) | (b.mTotalSize[2]<<16) | (b.mTotalSize[3]<<24);
+		uint32_t totalSizeL = (b.mTotalSize[0] << 0) | (b.mTotalSize[1] << 8) | (b.mTotalSize[2] << 16) | (b.mTotalSize[3] << 24);
+		uint32_t totalSizeH = (b.mTotalSize[4] << 0) | (b.mTotalSize[5] << 8) | (b.mTotalSize[6] << 16) | (b.mTotalSize[7] << 24);
+		uint64_t totalSize = (uint64_t)totalSizeL | (uint64_t)totalSizeH;
+		global.mSlice[i].mTotalSize = totalSize;
 		global.mSlice[i].mCRC = (b.mCRC[0]<<0) | (b.mCRC[1]<<8) | (b.mCRC[2]<<16) | (b.mCRC[3]<<24);
 		struct tm lt;
 		lt.tm_year = ((b.mDate[0]>>4)*1000)+((b.mDate[0]&0x0f)*100)+((b.mDate[1]>>4)*10)+((b.mDate[1]&0x0f)*1) - 1900;
@@ -97,6 +120,12 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 		lt.tm_min = ((b.mDate[5]>>4)*10)+((b.mDate[5]&0x0f)*1);
 		lt.tm_sec = ((b.mDate[6]>>4)*10)+((b.mDate[6]&0x0f)*1);
 		global.mSlice[i].mLastModifiedTime = (uint64_t)mktime(&lt);
+
+		if (totalSize != datasize) {
+			fprintf(stderr, "Failed: Database size error(header=%" PRIx64 ", data=%" PRIx64 ") [%s].\n", totalSize, datasize, filename.c_str());
+			return -1;
+		}
+
 	}
 
 	// データベースエントリを読む

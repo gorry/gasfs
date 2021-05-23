@@ -39,6 +39,7 @@ void showHelp()
 	   "                        If this option is omitted, Extract No files.\n"
 	   "  --slice [num]         Load only [num] slice.\n"
 	   "  --list [list.gfi]     Output list file.\n"
+	   "  --skipcheckcrc        Skip CRC check.\n"
 	   "  --verbose             Output verbose log.\n"
 	   "  --help                Show this.\n"
 	);
@@ -153,6 +154,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 	std::wstring wextractDir;
 	std::vector<std::string> extractFiles;
 	int extractSlice = 0;
+	GasFs::Global global = {0};
 
 	// ロケール設定
 #if defined(_WINDOWS)
@@ -210,6 +212,10 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 			}
 			continue;
 		}
+		if (arg == "--skipcheckcrc") {
+			global.mSkipCheckCRC = true;
+			continue;
+		}
 		if (arg == "--verbose") {
 			gVerbose = true;
 			continue;
@@ -252,7 +258,6 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 	}
 
 	// データベースを読み込む
-	GasFs::Global global;
 	GasFs::Map map;
 	global.mSliceFilename = inputFilename;
 	int slices = createMap(global, map);
@@ -270,6 +275,34 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 			if (i != extractSlice) continue;
 		}
 		printf("Slice [%03d]\n", i);
+
+		// 読み込み元スライスを開く
+		char filename[_MAX_PATH];
+		sprintf(filename, "%s_%03d.gfs", inputFilename.c_str(), i);
+		FILE* fin = fopen(filename, "rb");
+		if (fin == nullptr) {
+			fprintf(stderr, "Failed: Cannot open file [%s]\n", filename);
+			exit(EXIT_FAILURE);
+		}
+
+		// スライスのCRCチェック
+		if (!global.mSkipCheckCRC) {
+			fseek(fin, sizeof(GasFs::Database::SubHeader), SEEK_SET);
+			uint8_t buf[1024*64];
+			uint32_t datacrc = 0;
+			while (!0) {
+				uint32_t readsize = sizeof(buf);
+				readsize = fread(buf, 1, readsize, fin);
+				if (readsize == 0) break;
+				datacrc = GasFs::GetCRC(buf, readsize, datacrc);
+			}
+			uint32_t crc = global.mSlice[i].mCRC;
+			if (crc != datacrc) {
+				fprintf(stderr, "Failed: Slice[%d] CRC error(header=%08x, data=%08x) [%s].\n", i, crc, datacrc, filename);
+				exit(EXIT_FAILURE);
+			}
+		}
+
 		int files = 0;
 		int64_t totalSize = 0;
 		for (const auto& e: map) {
@@ -309,14 +342,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 						}
 					}
 
-					// 読み込み元スライスを開く
-					char filename[_MAX_PATH];
-					sprintf(filename, "%s_%03d.gfs", inputFilename.c_str(), i);
-					FILE* fin = fopen(filename, "rb");
-					if (fin == nullptr) {
-						fprintf(stderr, "Failed: Cannot open file [%s]\n", filename);
-						exit(EXIT_FAILURE);
-					}
+					// 読み込み元スライスをシーク
 					fpos_t pos = entry.mOffset + sizeof(GasFs::Database::SubHeader);
 					fsetpos(fin, &pos);
 
@@ -343,7 +369,6 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 					delete[] buf;
 
 					// 書き写し終了
-					fclose(fin);
 					int ret = fclose(fout);
 					if (ret) {
 						fprintf(stderr, "Failed: Cannot write [%s].\n", newpath.c_str());
@@ -354,6 +379,9 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 				totalSize += entry.mSize;
 			}
 		}
+
+		fclose(fin);
+
 		if (files) {
 			printf("%d files, %" PRIi64 "MBytes\n", files, totalSize/1024/1024);
 		}
