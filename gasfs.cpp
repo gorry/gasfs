@@ -67,7 +67,7 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 		fprintf(stderr, "Failed: Database size error(header=%08x, data=%08x) [%s].\n", totalSize, datasize, filename.c_str());
 		return -1;
 	}
-	if (!global.mSkipCheckCRC) {
+	{
 		uint32_t datacrc = GasFs::GetCRC(p, datasize, 0);
 		if (crc != datacrc) {
 			fprintf(stderr, "Failed: Database CRC error(header=%08x, data=%08x) [%s].\n", crc, datacrc, filename.c_str());
