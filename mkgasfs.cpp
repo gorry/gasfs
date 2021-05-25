@@ -749,6 +749,7 @@ exportMapList(const GasFs::Global& global, const std::string& outputFilename, co
 				fprintf(fout, "\t%s\n", path.c_str());
 			}
 		}
+		fprintf(fout, "\t****\n");
 		fprintf(fout, "]]]]\n");
 		fprintf(fout, "\n");
 	}
@@ -982,7 +983,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 			size_t listSize = slicePathList->size();
 			for (int j=0; j<(int)listSize; j++) {
 				const std::string& path = slicePathList->at(j);
-				if (path.compare("****")) {
+				if (path.compare("****") != 0) {
 					ret = addPathToMap(global, mapSlice, 1, i, path);
 					if (!ret) {
 						exit(EXIT_FAILURE);

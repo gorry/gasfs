@@ -50,11 +50,11 @@ void showHelp()
 // =====================================================================
 
 bool
-exportMapList(const GasFs::Global& global, const GasFs::Map& map, const std::string& outputFilename)
+exportMapList(const GasFs::Global& global, const std::string& outputFilename, const GasFs::Map& map, const std::string& extractDir)
 {
 	FILE* fout = fopen(outputFilename.c_str(), "w");
 	if (fout == nullptr) {
-		fprintf(stderr, "Failed: Cannot open [%s].\n", outputFilename.c_str());
+		fprintf(stderr, "Failed: Cannot export to [%s].\n", outputFilename.c_str());
 		return false;
 	}
 
@@ -67,6 +67,17 @@ exportMapList(const GasFs::Global& global, const GasFs::Map& map, const std::str
 	fprintf(fout, "MaxSliceSize=%d\n", global.mMaxSliceSize);
 	fprintf(fout, "\n");
 
+	fprintf(fout, "[Input]\n");
+	fprintf(fout, "PathList=[[[[\n");
+	if (!extractDir.empty()) {
+		const std::wstring wdir = WStrUtil::str2wstr(extractDir);
+		const std::wstring wnewpath = WStrUtil::pathAddPath(wdir, L"*.*");
+		const std::string newpath = WStrUtil::wstr2str(wnewpath);
+		fprintf(fout, "\t%s\n", newpath.c_str());
+	}
+	fprintf(fout, "]]]]\n");
+	fprintf(fout, "\n");
+
 	for (int i=1; i<=slices; i++) {
 		fprintf(fout, "[%03d]\n", i);
 		fprintf(fout, "PathList=[[[[\n");
@@ -77,6 +88,7 @@ exportMapList(const GasFs::Global& global, const GasFs::Map& map, const std::str
 				fprintf(fout, "\t%s\n", path.c_str());
 			}
 		}
+		fprintf(fout, "\t****\n");
 		fprintf(fout, "]]]]\n");
 		fprintf(fout, "\n");
 	}
@@ -389,7 +401,7 @@ wmain(int argc, wchar_t** argv, wchar_t** envp)
 
 	// スライスリストをエクスポート
 	if (list) {
-		exportMapList(global, map, listFilename);
+		exportMapList(global, listFilename, map, extractDir);
 	}
 
 	printf("Read [%s.000] with %d slices, %zu files archived.\n", inputFilename.c_str(), slices, map.size());
