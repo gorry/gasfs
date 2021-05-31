@@ -26,26 +26,26 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 {
 	// データベースファイルを開く
 	std::string filename = global.mSliceFilename+"_000.gfs";
-	FILE* fin = fopen(filename.c_str(), "rb");
+	MY_FILE fin = my_fopen(filename.c_str(), "rb");
 	if (fin == nullptr) {
-		fprintf(stderr, "Failed: Cannot open [%s].\n", filename.c_str());
+		my_printerr("Failed: Cannot open [%s].\n", filename.c_str());
 		return -1;
 	}
-	fseek(fin, 0, SEEK_END);
-	fpos_t pos;
-	fgetpos(fin, &pos);
+	my_fseek(fin, 0, SEEK_END);
+	my_fpos_t pos;
+	my_fgetpos(fin, &pos);
 	size_t filesize = (size_t)pos;
-	fseek(fin, 0, SEEK_SET);
+	my_fseek(fin, 0, SEEK_SET);
 	uint8_t* buf = new uint8_t[filesize];
 	if (buf == nullptr) {
-		fprintf(stderr, "Failed: Memory exhaused at reading [%s].\n", filename.c_str());
-		fclose(fin);
+		my_printerr("Failed: Memory exhaused at reading [%s].\n", filename.c_str());
+		my_fclose(fin);
 		return -1;
 	}
-	size_t readsize = fread(buf, 1, filesize, fin);
-	fclose(fin);
+	size_t readsize = my_fread(buf, 1, filesize, fin);
+	my_fclose(fin);
 	if (readsize != filesize) {
-		fprintf(stderr, "Failed: Cannot read [%s].\n", filename.c_str());
+		my_printerr("Failed: Cannot read [%s].\n", filename.c_str());
 		return -1;
 	}
 	uint8_t* p = buf;
@@ -54,7 +54,7 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 	GasFs::Database::Header* header = (GasFs::Database::Header*)p;
 	p += sizeof(GasFs::Database::Header);
 	if (memcmp(&(header->mMark[0]), GASFS_MARK, 4)) {
-		fprintf(stderr, "Failed: Not GasFs file [%s].\n", filename.c_str());
+		my_printerr("Failed: Not GasFs file [%s].\n", filename.c_str());
 		return -1;
 	}
 	int slices = header->mSlices[0];
@@ -64,13 +64,13 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 	uint32_t crc = (header->mCRC[0]<<0) | (header->mCRC[1]<<8) | (header->mCRC[2]<<16) | (header->mCRC[3]<<24);
 	uint32_t datasize = readsize-sizeof(GasFs::Database::Header);
 	if (totalSize != datasize) {
-		fprintf(stderr, "Failed: Database size error(header=%08x, data=%08x) [%s].\n", totalSize, datasize, filename.c_str());
+		my_printerr("Failed: Database size error(header=%08x, data=%08x) [%s].\n", totalSize, datasize, filename.c_str());
 		return -1;
 	}
 	{
 		uint32_t datacrc = GasFs::GetCRC(p, datasize, 0);
 		if (crc != datacrc) {
-			fprintf(stderr, "Failed: Database CRC error(header=%08x, data=%08x) [%s].\n", crc, datacrc, filename.c_str());
+			my_printerr("Failed: Database CRC error(header=%08x, data=%08x) [%s].\n", crc, datacrc, filename.c_str());
 			return -1;
 		}
 	}
@@ -83,27 +83,27 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 		char str[16];
 		sprintf(str, "_%03d.gfs", i);
 		filename = global.mSliceFilename + std::string(str);
-		fin = fopen(filename.c_str(), "rb");
+		fin = my_fopen(filename.c_str(), "rb");
 		if (fin == nullptr) {
-			fprintf(stderr, "Failed: Cannot open [%s].\n", filename.c_str());
+			my_printerr("Failed: Cannot open [%s].\n", filename.c_str());
 			return -1;
 		}
 		GasFs::Database::SubHeader b = {0};
-		readsize = fread(&b, 1, sizeof(b), fin);
+		readsize = my_fread(&b, 1, sizeof(b), fin);
 
 		// スライスファイルのサイズを得ておく
-		fseek(fin, 0, SEEK_END);
-		fpos_t pos;
-		fgetpos(fin, &pos);
+		my_fseek(fin, 0, SEEK_END);
+		my_fpos_t pos;
+		my_fgetpos(fin, &pos);
 		uint64_t datasize = pos - sizeof(GasFs::Database::SubHeader);
 
-		fclose(fin);
+		my_fclose(fin);
 		if (readsize != sizeof(b)) {
-			fprintf(stderr, "Failed: Cannot read [%s].\n", filename.c_str());
+			my_printerr("Failed: Cannot read [%s].\n", filename.c_str());
 			return -1;
 		}
 		if (memcmp(&b, &subheader[i-1], sizeof(b))) {
-			fprintf(stderr, "Failed: Slice[%d] SubHeader are different [%s].\n", i, filename.c_str());
+			my_printerr("Failed: Slice[%d] SubHeader are different [%s].\n", i, filename.c_str());
 			return -1;
 		}
 		global.mSlice[i].mFiles = (b.mFiles[0]<<0) | (b.mFiles[1]<<8) | (b.mFiles[0]<<16);
@@ -122,7 +122,7 @@ createMap(GasFs::Global& global, GasFs::Map& map)
 		global.mSlice[i].mLastModifiedTime = (uint64_t)mktime(&lt);
 
 		if (totalSize != datasize) {
-			fprintf(stderr, "Failed: Database size error(header=%" PRIx64 ", data=%" PRIx64 ") [%s].\n", totalSize, datasize, filename.c_str());
+			my_printerr("Failed: Database size error(header=%" PRIx64 ", data=%" PRIx64 ") [%s].\n", totalSize, datasize, filename.c_str());
 			return -1;
 		}
 

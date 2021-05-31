@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClCompile Include="dirent\dirent.c" />
     <ClCompile Include="gasfs.cpp" />
+    <ClCompile Include="gasfs_arch.cpp" />
     <ClCompile Include="IniFile.cpp" />
     <ClCompile Include="wcwidth\wcwidth.c" />
     <ClCompile Include="WStrUtil.cpp" />
