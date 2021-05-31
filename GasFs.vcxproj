@@ -29,6 +29,7 @@
   <ItemGroup>
     <ClInclude Include="dirent\dirent.h" />
     <ClInclude Include="gasfs.h" />
+    <ClInclude Include="gasfs_arch.h" />
     <ClInclude Include="IniFile.h" />
     <ClInclude Include="WStrUtil.h" />
   </ItemGroup>
